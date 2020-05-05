@@ -1,0 +1,8 @@
+.env
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# cache
+__pychache__/
