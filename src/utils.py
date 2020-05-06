@@ -1,6 +1,9 @@
 import numpy as np
 import torch
-import tensorflow as tf
+# import tensorflow as tf
+# from tensorflow.keras import backend as K
+# from tensorflow.keras.datasets import mnist
+# from tensorflow.keras.utils import to_categorical
 from keras import backend as K
 from keras.datasets import mnist
 from keras.utils import to_categorical
@@ -36,7 +39,8 @@ class Load():
         if self.method == 'torch':
             return torch.Tensor(x)
         else:
-            return tf.convert_to_tensor(x)
+            # return tf.convert_to_tensor(x)
+            return K.constant(x)
 
     def mnist(self, sample=None):
         (x_train, y_train), (x_test, y_test) = mnist.load_data()
@@ -46,7 +50,6 @@ class Load():
             print(x_train[sample:sample+1].shape)
             return x_train[sample:sample+1]
         else:
-            x_train = self._numpy_to_tensor(self._normalize(x_train))
             x_test = self._numpy_to_tensor(self._normalize(x_test))
             y_train = to_categorical(y_train, len(np.unique(y_train)))
             y_train = self._numpy_to_tensor(y_train)
@@ -75,6 +78,19 @@ class Plot():
         self.fig = plt.figure(figsize=(self.width, self.height))
         self.bot = bot
 
+    def _network_dict(self, network_id):
+        c = 'Convolution\n+ '
+        dictionary = {
+            0: [c + 'ReLU', r'Max Pooling $(2 \times 2)$'],
+            1: [c + 'Softmax', r'Max Pooling $(2 \times 2)$'],
+            2: [c + 'ReLU', r'Average Pooling $(2 \times 2)$'],
+            3: [c + 'Softmax', r'Average Pooling $(2 \times 2)$'],
+            4: [c + 'Softmax', r'Max Pooling $(2 \times 2)$', c + 'ReLU'],
+            5: [c + 'ReLU', r'Max Pooling $(2 \times 2)$', c + 'ReLU',
+                r'Max Pooling $(2 \times 2)$']
+        }
+        return dictionary[network_id]
+
     def _no_ticks(self, ax):
         ax.set_xticks([])
         ax.set_yticks([])
@@ -97,15 +113,16 @@ class Plot():
         return np.array(x1), np.array(x2)
 
 
-    def _network_desc(self, levels):
+    def _network_desc(self, levels, network_id):
         x1, x2 = self._level_locs(levels)
+        labels = self._network_dict(network_id)
         gs = pltgs.GridSpec(1, 1, left=0, right=1, top=self.bot, bottom=0)
         ax = self.fig.add_subplot(gs[0,0])
         for i in range(len(x1)):
-            ax.plot([x1[i], x1[i]], [0.9, 0.7], c='k')
+            ax.plot([x1[i], x1[i]], [0.8, 0.7], c='k')
             ax.plot([x1[i], x2[i]], [0.7, 0.7], c='k')
-            ax.plot([x2[i], x2[i]], [0.9, 0.7], c='k')
-            ax.text((x1[i] + x2[i]) / 2, 0.55, 'Convolution + ReLU',
+            ax.plot([x2[i], x2[i]], [0.8, 0.7], c='k')
+            ax.text((x1[i] + x2[i]) / 2, 0.55, labels[i],
                      ha='center', va='top', size=self.size)
         ax.set_ylim(0, 1)
         ax.set_xlim(0, 1)
@@ -166,13 +183,14 @@ class Plot():
             self._shape_label(x[i], xlim, ylim)
         return None
 
-    def network(self, x_input, x_list, activation='', channels='first'):
+    def network(self, x_input, x_list, activation='', network_id=0,
+                channels='first'):
         if channels == 'last':
             x_input = np.transpose(x_input, [0, 3, 1, 2])
             x_list = [np.transpose(x, [0, 3, 1, 2]) for x in x_list]
         levels = len(x_list) + 1
         if levels > 2:
-            self._network_desc(levels)
+            self._network_desc(levels, network_id)
         else:
             self.bot = 0
             self._conv_desc(levels, activation)
@@ -181,7 +199,22 @@ class Plot():
         return None
 
 
-
+# def build_model():
+#     model = Sequential()
+#     model.add(ZeroPadding2D(padding=(1, 1)))
+#     model.add(Conv2D(12, kernel_size=3, activation='relu'))
+#     model.add(ZeroPadding2D(padding=(1, 1)))
+#     model.add(Conv2D(24, kernel_size=3, activation='relu'))
+#     model.add(MaxPooling2D(pool_size=(2, 2)))
+#     model.add(ZeroPadding2D(padding=(1, 1)))
+#     model.add(Conv2D(24, kernel_size=3, activation='relu'))
+#     model.add(MaxPooling2D(pool_size=(2, 2)))
+#     model.add(ZeroPadding2D(padding=(1, 1)))
+#     model.add(Conv2D(24, kernel_size=3, activation='relu'))
+#     model.add(Conv2D(24, kernel_size=3, activation='relu'))
+#     model.add(Flatten())
+#     model.add(Dense(100, activation='relu'))
+#     model.add(Dense(10, activation='softmax'))
 
 
 
