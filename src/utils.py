@@ -11,64 +11,6 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as pltgs
 
 
-class Load():
-    def __init__(self, method='torch'):
-        self.method = method
-
-    def _channels_first(self, x, rows, cols):
-        return x.reshape(x.shape[0], 1, rows, cols)
-
-    def _channels_last(self, x, rows, cols):
-        return x.reshape(x.shape[0], rows, cols, 1)
-
-    def _reshape(self, x_train, x_test):
-        rows, cols = x_train.shape[-2:]
-        if K.image_data_format() == 'channels_first' or self.method == 'torch':
-            x_train = self._channels_first(x_train, rows, cols)
-            x_test = self._channels_first(x_test, rows, cols)
-            return x_train, x_test, (1, rows, cols)
-        else:
-            x_train = self._channels_last(x_train, rows, cols)
-            x_test = self._channels_last(x_test, rows, cols)
-            return x_train, x_test, (rows, cols, 1)
-
-    def _normalize(self, x):
-        return x.astype('float32') / 255
-
-    def _numpy_to_tensor(self, x):
-        if self.method == 'torch':
-            return torch.Tensor(x)
-        else:
-            # return tf.convert_to_tensor(x)
-            return K.constant(x)
-
-    def mnist(self, sample=None):
-        (x_train, y_train), (x_test, y_test) = mnist.load_data()
-        x_train, x_test, input_shape = self._reshape(x_train, x_test)
-        x_train = self._numpy_to_tensor(self._normalize(x_train))
-        if type(sample) == int:
-            print(x_train[sample:sample+1].shape)
-            return x_train[sample:sample+1]
-        else:
-            x_test = self._numpy_to_tensor(self._normalize(x_test))
-            y_train = to_categorical(y_train, len(np.unique(y_train)))
-            y_train = self._numpy_to_tensor(y_train)
-            y_test = to_categorical(y_test, len(np.unique(y_test)))
-            y_test = self._numpy_to_tensor(y_test)
-            return x_train, y_train, x_test, y_test, input_shape
-
-    def image(self, fn):
-        x = plt.imread(fn).astype('float32') / 255
-        H, W = x.shape[:2]
-        if x.ndim == 2:
-            x = x.reshape(1, 1, H, W)
-            return self._numpy_to_tensor(x)
-        else:
-            x = np.transpose(x, [2, 0, 1])
-            x = x.reshape(-1, 1, H, W)
-        return self._numpy_to_tensor(x)
-
-
 class Plot():
     def __init__(self, width=10, height=4, cmap='magma', size=12, bot=0.1):
         self.width = width
@@ -82,12 +24,12 @@ class Plot():
         c = 'Convolution\n+ '
         dictionary = {
             0: [c + 'ReLU', r'Max Pooling $(2 \times 2)$'],
-            1: [c + 'Softmax', r'Max Pooling $(2 \times 2)$'],
+            1: [c + 'Tanh', r'Max Pooling $(2 \times 2)$'],
             2: [c + 'ReLU', r'Average Pooling $(2 \times 2)$'],
-            3: [c + 'Softmax', r'Average Pooling $(2 \times 2)$'],
-            4: [c + 'Softmax', r'Max Pooling $(2 \times 2)$', c + 'ReLU'],
+            3: [c + 'Tanh', r'Average Pooling $(2 \times 2)$'],
+            4: [c + 'Tanh', r'Max Pooling $(2 \times 2)$', c + 'ReLU'],
             5: [c + 'ReLU', r'Max Pooling $(2 \times 2)$', c + 'ReLU',
-                r'Max Pooling $(2 \times 2)$']
+                c + 'ReLU', r'Max Pooling $(2 \times 2)$']
         }
         return dictionary[network_id]
 
@@ -199,6 +141,81 @@ class Plot():
         return None
 
 
+def _channels_first(x, rows, cols):
+    return x.reshape(x.shape[0], 1, rows, cols)
+
+
+def _channels_last(x, rows, cols):
+    return x.reshape(x.shape[0], rows, cols, 1)
+
+
+def _reshape(x_train, x_test, method):
+    rows, cols = x_train.shape[-2:]
+    if K.image_data_format() == 'channels_first' or method == 'torch':
+        x_train = _channels_first(x_train, rows, cols)
+        x_test = _channels_first(x_test, rows, cols)
+        return x_train, x_test, (1, rows, cols)
+    else:
+        x_train = _channels_last(x_train, rows, cols)
+        x_test = _channels_last(x_test, rows, cols)
+        return x_train, x_test, (rows, cols, 1)
+
+
+def _normalize(x):
+    return x.astype('float32') / 255
+
+
+def _numpy_to_tensor(x, method):
+    if method == 'torch':
+        return torch.Tensor(x)
+    else:
+        return K.constant(x)
+
+
+def load_mnist(method='torch', sample=None):
+    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+    x_train, x_test, input_shape = _reshape(x_train, x_test, method)
+    x_train = _numpy_to_tensor(_normalize(x_train), method)
+    if type(sample) == int:
+        print(x_train[sample:sample+1].shape)
+        return x_train[sample:sample+1]
+    else:
+        x_test = _numpy_to_tensor(_normalize(x_test), method)
+        y_train = to_categorical(y_train, len(np.unique(y_train)))
+        y_train = _numpy_to_tensor(y_train, method)
+        y_test = to_categorical(y_test, len(np.unique(y_test)))
+        y_test = _numpy_to_tensor(y_test, method)
+        return x_train, y_train, x_test, y_test, input_shape
+
+
+def load_image(fn, method='torch'):
+    x = plt.imread(fn).astype('float32') / 255
+    H, W = x.shape[:2]
+    if x.ndim == 2:
+        x = x.reshape(1, 1, H, W)
+        return _numpy_to_tensor(x, method)
+    else:
+        x = np.transpose(x, [2, 0, 1])
+        x = x.reshape(-1, 1, H, W)
+    return _numpy_to_tensor(x, method)
+
+
+def display_conv(x, conv, activation):
+    x1 = K.eval(conv(x))
+    Plot().network(x, [x1], activation=activation, channels='last')
+    return None
+
+
+def display_conv_pool(x, conv_list, network_id, height=5):
+    x_list = [conv_list[0](x)]
+    for i in range(1, len(conv_list)):
+        x_list += [conv_list[i](x_list[i-1])]
+    x_list = [K.eval(x_list[i]) for i in range(len(conv_list))]
+    Plot(height=height).network(x, x_list, network_id=network_id,
+                                channels='last')
+    return None
+
+
 # def build_model():
 #     model = Sequential()
 #     model.add(ZeroPadding2D(padding=(1, 1)))
@@ -215,10 +232,6 @@ class Plot():
 #     model.add(Flatten())
 #     model.add(Dense(100, activation='relu'))
 #     model.add(Dense(10, activation='softmax'))
-
-
-
-
 
 
 
