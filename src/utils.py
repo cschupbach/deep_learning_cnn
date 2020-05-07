@@ -242,15 +242,5 @@ def display_conv_pool(x, conv_list, network_id, height=5):
 
 
 
-
-
-
-
-
-
-
-
-
-
 #
 #
