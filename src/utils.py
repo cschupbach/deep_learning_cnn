@@ -1,9 +1,5 @@
 import numpy as np
 import torch
-# import tensorflow as tf
-# from tensorflow.keras import backend as K
-# from tensorflow.keras.datasets import mnist
-# from tensorflow.keras.utils import to_categorical
 from keras import backend as K
 from keras.datasets import mnist
 from keras.utils import to_categorical
@@ -185,7 +181,14 @@ def load_mnist(method='torch', sample=None):
         y_train = _numpy_to_tensor(y_train, method)
         y_test = to_categorical(y_test, len(np.unique(y_test)))
         y_test = _numpy_to_tensor(y_test, method)
-        return x_train, y_train, x_test, y_test, input_shape
+        if method == 'torch':
+            return x_train, y_train, x_test, y_test, input_shape
+        else:
+            x_train = K.eval(x_train)
+            y_train = K.eval(y_train)
+            x_test = K.eval(x_test)
+            y_test = K.eval(y_test)
+            return x_train, y_train, x_test, y_test, input_shape
 
 
 def load_image(fn, method='torch'):
