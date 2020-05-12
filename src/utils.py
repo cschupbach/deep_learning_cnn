@@ -1,7 +1,15 @@
+import os
+
+path = '/Users/chadschupbach/opt/anaconda3/'
+os.environ['KERAS_BACKEND'] = 'plaidml.keras.backend'
+os.environ['RUNFILES_DIR'] = path + 'share/plaidml'
+os.environ['PLAIDML_NATIVE_PATH'] = path + 'lib/libplaidml.dylib'
+
 import numpy as np
 import torch
+import keras
 from keras import backend as K
-from keras.datasets import mnist
+from keras.datasets import mnist, cifar10, fashion_mnist
 from keras.utils import to_categorical
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as pltgs
@@ -137,24 +145,26 @@ class Plot():
         return None
 
 
-def _channels_first(x, rows, cols):
-    return x.reshape(x.shape[0], 1, rows, cols)
+def _channels_first(x, rows, cols, channels):
+    x = x.reshape(x.shape[0], rows, cols, channels)
+    return np.transpose(x, [0, 3, 1, 2])
 
 
-def _channels_last(x, rows, cols):
-    return x.reshape(x.shape[0], rows, cols, 1)
+def _channels_last(x, rows, cols, channels):
+    return x.reshape(x.shape[0], rows, cols, channels)
 
 
 def _reshape(x_train, x_test, method):
-    rows, cols = x_train.shape[-2:]
-    if K.image_data_format() == 'channels_first' or method == 'torch':
-        x_train = _channels_first(x_train, rows, cols)
-        x_test = _channels_first(x_test, rows, cols)
-        return x_train, x_test, (1, rows, cols)
+    rows, cols = x_train.shape[1:3]
+    channels = x_train.shape[-1] if x_train.ndim > 3 else 1
+    if method == 'torch':
+        x_train = _channels_first(x_train, rows, cols, channels)
+        x_test = _channels_first(x_test, rows, cols, channels)
+        return x_train, x_test, (channels, rows, cols)
     else:
-        x_train = _channels_last(x_train, rows, cols)
-        x_test = _channels_last(x_test, rows, cols)
-        return x_train, x_test, (rows, cols, 1)
+        x_train = _channels_last(x_train, rows, cols, channels)
+        x_test = _channels_last(x_test, rows, cols, channels)
+        return x_train, x_test, (rows, cols, channels)
 
 
 def _normalize(x):
@@ -168,8 +178,26 @@ def _numpy_to_tensor(x, method):
         return K.constant(x)
 
 
-def load_mnist(method='torch', sample=None):
-    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+# ['airplane',
+# 'automobile',
+# 'bird',
+# 'cat',
+# 'deer',
+# 'dog',
+# 'frog',
+# 'horse',
+# 'ship',
+# 'truck']
+#
+# (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+
+def load_mnist(method='keras', dataset='digit', sample=None):
+    if dataset == 'fashion':
+        (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
+    elif dataset == 'cifar10':
+        (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+    else:
+        (x_train, y_train), (x_test, y_test) = mnist.load_data()
     x_train, x_test, input_shape = _reshape(x_train, x_test, method)
     x_train = _numpy_to_tensor(_normalize(x_train), method)
     if type(sample) == int:
@@ -205,7 +233,7 @@ def load_image(fn, method='torch'):
 
 def display_conv(x, conv, activation):
     x1 = K.eval(conv(x))
-    Plot().network(x, [x1], activation=activation, channels='last')
+    Plot().network(K.eval(x), [x1], activation=activation, channels='last')
     return None
 
 
@@ -214,8 +242,82 @@ def display_conv_pool(x, conv_list, network_id, height=5):
     for i in range(1, len(conv_list)):
         x_list += [conv_list[i](x_list[i-1])]
     x_list = [K.eval(x_list[i]) for i in range(len(conv_list))]
-    Plot(height=height).network(x, x_list, network_id=network_id,
+    Plot(height=height).network(K.eval(x), x_list, network_id=network_id,
                                 channels='last')
+    return None
+
+
+def display_fc(model, x):
+    label = model.get_layer(index=-1).name
+    fc = K.eval(model(x))
+    plt.figure(figsize=(10, 0.5))
+    plt.imshow(fc, cmap='magma', aspect='auto')
+    plt.gca().set_xticks([])
+    plt.gca().set_yticks([])
+    xloc = np.array(plt.gca().get_xlim())
+    plt.text(xloc[0], -0.6, label, ha='left', va='bottom', size=12)
+    plt.text(np.mean(xloc), 0.7, fc.shape, ha='center', va='top', size=12)
+    return None
+
+
+def get_labels(x_test, test_pred, test_act, test_res):
+    idx = test_pred != test_act
+    digit = x_test[idx][:,:,:,0]
+    act_label = test_act[idx]
+    pred_label = test_pred[idx]
+    act_prob = test_res[idx, act_label]
+    pred_prob = test_res[idx, pred_label]
+    sidx = np.argsort(act_label)
+
+
+def plot_samples(x_train, y_train):
+    sample_list = [x_train[y_train[:,i].astype(bool)][:10] for i in range(10)]
+    samples = np.concatenate(sample_list)
+    figsize = (10, 10)
+    gs = pltgs.GridSpec(10, 10, hspace=0.12)
+    fig = plt.figure(figsize=figsize)
+    for i in range(100):
+        ax = fig.add_subplot(gs[i//10, i%10])
+        ax.imshow(samples[i,:,:,0], cmap='magma')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        # xlim, ylim = np.array(ax.get_xlim()), np.array(ax.get_ylim())
+        # plt.text(np.quantile(xlim, 0.25), ylim[1] - np.ptp(ylim) * 0.02,
+        #          'Actual={}\n{:.4f}'.format(act_label[i], act_prob[i]),
+        #          ha='center', va='bottom', size=11)
+        # plt.text(np.quantile(xlim, 0.75), ylim[1] - np.ptp(ylim) * 0.02,
+        #          'Pred={}\n{:.4f}'.format(pred_label[i], pred_prob[i]),
+        #          ha='center', va='bottom', size=11)
+    return None
+
+
+def plot_misclassified(x_test, test_pred, test_act, test_res):
+    idx = test_pred != test_act
+    digit = x_test[idx][:,:,:,0]
+    act_label = test_act[idx]
+    pred_label = test_pred[idx]
+    act_prob = test_res[idx, act_label]
+    pred_prob = test_res[idx, pred_label]
+    sorted_idx = np.argsort(act_label)
+
+    n_misclass = len(sorted_idx)
+    nrows = int(np.ceil(n_misclass / 5))
+    figsize = (10, nrows * 2.3)
+    gs = pltgs.GridSpec(nrows, 5)
+
+    fig = plt.figure(figsize=figsize)
+    for i, si in enumerate(sorted_idx):
+        ax = fig.add_subplot(gs[i//5, i%5])
+        ax.imshow(digit[si], cmap='magma')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        xlim, ylim = np.array(ax.get_xlim()), np.array(ax.get_ylim())
+        plt.text(np.quantile(xlim, 0.25), ylim[1] - np.ptp(ylim) * 0.02,
+                 'Actual={}\n{:.4f}'.format(act_label[si], act_prob[si]),
+                 ha='center', va='bottom', size=11)
+        plt.text(np.quantile(xlim, 0.75), ylim[1] - np.ptp(ylim) * 0.02,
+                 'Pred={}\n{:.4f}'.format(pred_label[si], pred_prob[si]),
+                 ha='center', va='bottom', size=11)
     return None
 
 
