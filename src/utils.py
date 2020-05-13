@@ -6,13 +6,16 @@ os.environ['RUNFILES_DIR'] = path + 'share/plaidml'
 os.environ['PLAIDML_NATIVE_PATH'] = path + 'lib/libplaidml.dylib'
 
 import numpy as np
+import pandas as pd
 import torch
 import keras
 from keras import backend as K
 from keras.datasets import mnist, cifar10, fashion_mnist
 from keras.utils import to_categorical
+from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as pltgs
+
 
 
 class Plot():
@@ -178,20 +181,19 @@ def _numpy_to_tensor(x, method):
         return K.constant(x)
 
 
-# ['airplane',
-# 'automobile',
-# 'bird',
-# 'cat',
-# 'deer',
-# 'dog',
-# 'frog',
-# 'horse',
-# 'ship',
-# 'truck']
-#
-# (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+def dataset_classes(dataset='mnist'):
+    if dataset == 'fashion':
+        return {0: 'T-shirt', 1: 'Trouser', 2: 'Pullover', 3: 'Dress',
+                4: 'Coat', 5: 'Sandal', 6: 'Shirt', 7: 'Sneaker', 8: 'Bag',
+                9: 'Boot'}
+    if dataset == 'cifar10':
+        return {0: 'airplane', 1: 'automobile', 2: 'bird', 3: 'cat', 4: 'deer',
+                5: 'dog', 6: 'frog', 7: 'horse', 8: 'ship', 9: 'truck'}
+    else:
+        return {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9}
 
-def load_mnist(method='keras', dataset='digit', sample=None):
+
+def load_mnist(method='keras', dataset='mnist', sample=None):
     if dataset == 'fashion':
         (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
     elif dataset == 'cifar10':
@@ -270,42 +272,164 @@ def get_labels(x_test, test_pred, test_act, test_res):
     sidx = np.argsort(act_label)
 
 
-def plot_samples(x_train, y_train):
-    sample_list = [x_train[y_train[:,i].astype(bool)][:10] for i in range(10)]
+def plot_samples(x_train, y_train, dataset='mnist'):
+    class_dict = dataset_classes(dataset)
+    sample_list = [x_train[y_train[:,i].astype(bool)][:12] for i in range(10)]
     samples = np.concatenate(sample_list)
-    figsize = (10, 10)
-    gs = pltgs.GridSpec(10, 10, hspace=0.12)
-    fig = plt.figure(figsize=figsize)
-    for i in range(100):
-        ax = fig.add_subplot(gs[i//10, i%10])
+    gs = pltgs.GridSpec(10, 12, hspace=-0.025, wspace=-0.025)
+    fig = plt.figure(figsize=(10, 8.5))
+    yloc = np.linspace(0.95, 0.05, 10)
+    if dataset != 'mnist':
+        for i in np.arange(10):
+            plt.text(-0.01, yloc[i], class_dict[i], ha='right', va='center')
+        plt.gca().set_xticks([])
+        plt.gca().set_yticks([])
+    for i in range(120):
+        ax = fig.add_subplot(gs[i//12, i%12])
         ax.imshow(samples[i,:,:,0], cmap='magma')
         ax.set_xticks([])
         ax.set_yticks([])
-        # xlim, ylim = np.array(ax.get_xlim()), np.array(ax.get_ylim())
-        # plt.text(np.quantile(xlim, 0.25), ylim[1] - np.ptp(ylim) * 0.02,
-        #          'Actual={}\n{:.4f}'.format(act_label[i], act_prob[i]),
-        #          ha='center', va='bottom', size=11)
-        # plt.text(np.quantile(xlim, 0.75), ylim[1] - np.ptp(ylim) * 0.02,
-        #          'Pred={}\n{:.4f}'.format(pred_label[i], pred_prob[i]),
-        #          ha='center', va='bottom', size=11)
     return None
 
 
-def plot_misclassified(x_test, test_pred, test_act, test_res):
+def plot_class_means(x_train, y_train, dataset='mnist'):
+    class_dict = dataset_classes(dataset)
+    means = []
+    for i in range(y_train.shape[-1]):
+        means += [x_train[(y_train[:,i] == 1)].mean(axis=0)[:,:,0]]
+    gs = pltgs.GridSpec(2, 5)
+    fig = plt.figure(figsize=(10, 4))
+    for i in range(10):
+        ax = fig.add_subplot(gs[i//5, i%5])
+        ax.imshow(means[i], cmap='magma')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        xlim, ylim = np.array(ax.get_xlim()), np.array(ax.get_ylim())
+        if dataset != 'mnist':
+            plt.text(np.mean(xlim), ylim[1] - np.ptp(ylim) * 0.02,
+                     '{}'.format(class_dict[i]), ha='center',
+                     va='bottom', size=12)
+    return None
+
+
+def training_summary(model, ledger, x_test, y_test, dataset='mnist'):
+    opt_epoch = []
+    train_loss = []
+    train_acc = []
+    val_loss = []
+    val_acc = []
+    for i in range(len(model)):
+        opt_epoch += [np.argmax(ledger[i].history['val_acc']) + 1]
+        train_loss += [np.min(ledger[i].history['loss'])]
+        train_acc += [np.max(ledger[i].history['acc'])]
+        val_loss += [np.min(ledger[i].history['val_loss'])]
+        val_acc += [np.max(ledger[i].history['val_acc'])]
+
+    test_loss = []
+    test_acc = []
+    for i in range(len(model)):
+        model[i].load_weights(f'models/{dataset}/best_weights_{i}.hdf5')
+        score = model[i].evaluate(x_test, y_test, verbose=0)
+        test_loss += [score[0]]
+        test_acc += [score[1]]
+
+    index = [f'Model {i}' for i in range(len(model))] + ['Average']
+    df = pd.DataFrame({
+        'Epoch': opt_epoch + [np.mean(opt_epoch)],
+        'Train Loss': train_loss + [np.mean(train_loss)],
+        'Val Loss': val_loss + [np.mean(val_loss)],
+        'Test Loss': test_loss + [np.mean(test_loss)],
+        'Train Acc': train_acc + [np.mean(train_acc)],
+        'Val Acc': val_acc + [np.mean(val_acc)],
+        'Test Acc': test_acc + [np.mean(test_acc)]
+    }, index=index).round(5).round({
+        'Train Acc': 4,
+        'Val Acc': 4,
+        'Test Acc': 4
+    })
+    return df
+
+
+def ensemble_results(model, x_train, y_train, x_test, y_test):
+    train_res = np.zeros(y_train.shape)
+    test_res = np.zeros(y_test.shape)
+    for i in range(len(model)):
+        train_res += model[i].predict(x_train)
+        test_res += model[i].predict(x_test)
+    train_res /= len(model)
+    test_res /= len(model)
+
+    train_pred = np.argmax(train_res, axis=1)
+    train_act = np.argmax(y_train, axis=1)
+    ens_train_acc = (train_pred == train_act).mean()
+    test_pred = np.argmax(test_res, axis=1)
+    test_act = np.argmax(y_test, axis=1)
+    ens_test_acc = (test_pred == test_act).mean()
+    print('Ensemble Train Accuracy: {:.4f}'.format(ens_train_acc))
+    print('Ensemble Test Accuracy: {:.4f}'.format(ens_test_acc))
+
+    return test_act, test_pred, test_res
+
+
+def plot_confusion(test_act, test_pred, dataset='mnist'):
+    title = 'MNIST CNN Ensemble\nConfusion Matrix'
+    classes = list(dataset_classes(dataset).values())
+    rotation = 90 if type(classes) == str else 0
+    if dataset == 'fashion':
+        title = dataset[0].upper() + dataset[1:] + ' ' + title
+    if dataset == 'cifar10':
+        title = dataset.upper() + title[5:]
+    cmat = confusion_matrix(test_act, test_pred)
+    misclass = np.max(cmat[np.abs(np.eye(len(classes)) - 1).astype(bool)])
+    plt.figure(figsize=(8, 8))
+    plt.imshow(cmat, cmap='PuBu', vmax=misclass*1.75)
+    plt.title(title, size=13)
+    plt.xticks(np.arange(10), classes, rotation=rotation)
+    plt.yticks(np.arange(10), classes)
+    for i in range(cmat.shape[0]):
+        for j in range(cmat.shape[1]):
+            color = 'w' if cmat[i,j] > misclass else 'k'
+            plt.text(j, i, cmat[i,j], ha='center', va='center',
+                     color=color, size=12)
+    plt.ylabel('Actual', size=12)
+    plt.xlabel('Predicted', size=12)
+    plt.tight_layout()
+    return None
+
+
+def plot_misclassified(x_test, test_pred, test_act, test_res, dataset='mnist',
+                       _sort=False, prelab='=', size=11, h_ratio=2.3):
+    title = 'MNIST CNN Ensemble\nMisclassified Digits\n\n'
+    prelab = '='
+    class_dict = dataset_classes(dataset)
+    if dataset == 'fashion':
+        title = 'Fashion MNIST CNN Ensemble\nMisclassified Items (first 50)\n\n'
+        prelab = '\n'
+        size = 10
+        h_ratio = 2.5
+    if dataset == 'cifar10':
+        title = dataset.upper() + title[5:]
     idx = test_pred != test_act
     digit = x_test[idx][:,:,:,0]
     act_label = test_act[idx]
     pred_label = test_pred[idx]
     act_prob = test_res[idx, act_label]
     pred_prob = test_res[idx, pred_label]
-    sorted_idx = np.argsort(act_label)
+    if _sort:
+        sorted_idx = np.argsort(act_label)
+    else:
+        sorted_idx = np.arange(len(act_label))
 
     n_misclass = len(sorted_idx)
+    if n_misclass > 50:
+        n_misclass = 50
+        sorted_idx = sorted_idx[:50]
     nrows = int(np.ceil(n_misclass / 5))
-    figsize = (10, nrows * 2.3)
+    figsize = (10, nrows * h_ratio)
     gs = pltgs.GridSpec(nrows, 5)
-
     fig = plt.figure(figsize=figsize)
+    plt.title(title, ha='center', va='center')
+    plt.axis('off')
     for i, si in enumerate(sorted_idx):
         ax = fig.add_subplot(gs[i//5, i%5])
         ax.imshow(digit[si], cmap='magma')
@@ -313,39 +437,9 @@ def plot_misclassified(x_test, test_pred, test_act, test_res):
         ax.set_yticks([])
         xlim, ylim = np.array(ax.get_xlim()), np.array(ax.get_ylim())
         plt.text(np.quantile(xlim, 0.25), ylim[1] - np.ptp(ylim) * 0.02,
-                 'Actual={}\n{:.4f}'.format(act_label[si], act_prob[si]),
-                 ha='center', va='bottom', size=11)
+                 'Actual{}{}\n{:.4f}'.format(prelab, class_dict[act_label[si]],
+                 act_prob[si]), ha='center', va='bottom', size=size)
         plt.text(np.quantile(xlim, 0.75), ylim[1] - np.ptp(ylim) * 0.02,
-                 'Pred={}\n{:.4f}'.format(pred_label[si], pred_prob[si]),
-                 ha='center', va='bottom', size=11)
+                 'Pred{}{}\n{:.4f}'.format(prelab, class_dict[pred_label[si]],
+                 pred_prob[si]), ha='center', va='bottom', size=size)
     return None
-
-
-# def build_model():
-#     model = Sequential()
-#     model.add(ZeroPadding2D(padding=(1, 1)))
-#     model.add(Conv2D(12, kernel_size=3, activation='relu'))
-#     model.add(ZeroPadding2D(padding=(1, 1)))
-#     model.add(Conv2D(24, kernel_size=3, activation='relu'))
-#     model.add(MaxPooling2D(pool_size=(2, 2)))
-#     model.add(ZeroPadding2D(padding=(1, 1)))
-#     model.add(Conv2D(24, kernel_size=3, activation='relu'))
-#     model.add(MaxPooling2D(pool_size=(2, 2)))
-#     model.add(ZeroPadding2D(padding=(1, 1)))
-#     model.add(Conv2D(24, kernel_size=3, activation='relu'))
-#     model.add(Conv2D(24, kernel_size=3, activation='relu'))
-#     model.add(Flatten())
-#     model.add(Dense(100, activation='relu'))
-#     model.add(Dense(10, activation='softmax'))
-
-
-
-
-
-
-
-
-
-
-#
-#
