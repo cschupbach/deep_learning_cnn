@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as pltgs
 
 
-
 class Plot():
     def __init__(self, width=10, height=4, cmap='magma', size=12, bot=0.1):
         self.width = width
@@ -160,14 +159,14 @@ def _channels_last(x, rows, cols, channels):
 def _reshape(x_train, x_test, method):
     rows, cols = x_train.shape[1:3]
     channels = x_train.shape[-1] if x_train.ndim > 3 else 1
-    if method == 'torch':
-        x_train = _channels_first(x_train, rows, cols, channels)
-        x_test = _channels_first(x_test, rows, cols, channels)
-        return x_train, x_test, (channels, rows, cols)
-    else:
+    if method == 'keras':
         x_train = _channels_last(x_train, rows, cols, channels)
         x_test = _channels_last(x_test, rows, cols, channels)
         return x_train, x_test, (rows, cols, channels)
+    else:
+        x_train = _channels_first(x_train, rows, cols, channels)
+        x_test = _channels_first(x_test, rows, cols, channels)
+        return x_train, x_test, (channels, rows, cols)
 
 
 def _normalize(x):
@@ -175,13 +174,13 @@ def _normalize(x):
 
 
 def _numpy_to_tensor(x, method):
-    if method == 'torch':
-        return torch.Tensor(x)
-    else:
+    if method == 'keras':
         return K.constant(x)
+    else:
+        return torch.Tensor(x)
 
 
-def dataset_classes(dataset='mnist'):
+def dataset_classes(dataset='digits'):
     if dataset == 'fashion':
         return {0: 'T-shirt', 1: 'Trouser', 2: 'Pullover', 3: 'Dress',
                 4: 'Coat', 5: 'Sandal', 6: 'Shirt', 7: 'Sneaker', 8: 'Bag',
@@ -193,7 +192,7 @@ def dataset_classes(dataset='mnist'):
         return {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9}
 
 
-def load_mnist(method='keras', dataset='mnist', sample=None):
+def load_mnist(method='keras', dataset='digits', sample=None):
     if dataset == 'fashion':
         (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
     elif dataset == 'cifar10':
@@ -211,17 +210,17 @@ def load_mnist(method='keras', dataset='mnist', sample=None):
         y_train = _numpy_to_tensor(y_train, method)
         y_test = to_categorical(y_test, len(np.unique(y_test)))
         y_test = _numpy_to_tensor(y_test, method)
-        if method == 'torch':
-            return x_train, y_train, x_test, y_test, input_shape
-        else:
+        if method == 'keras':
             x_train = K.eval(x_train)
             y_train = K.eval(y_train)
             x_test = K.eval(x_test)
             y_test = K.eval(y_test)
             return x_train, y_train, x_test, y_test, input_shape
+        else:
+            return x_train, y_train, x_test, y_test, input_shape
 
 
-def load_image(fn, method='torch'):
+def load_image(fn, method='keras'):
     x = plt.imread(fn).astype('float32') / 255
     H, W = x.shape[:2]
     if x.ndim == 2:
@@ -272,14 +271,14 @@ def get_labels(x_test, test_pred, test_act, test_res):
     sidx = np.argsort(act_label)
 
 
-def plot_samples(x_train, y_train, dataset='mnist'):
+def plot_samples(x_train, y_train, dataset='digits'):
     class_dict = dataset_classes(dataset)
     sample_list = [x_train[y_train[:,i].astype(bool)][:12] for i in range(10)]
     samples = np.concatenate(sample_list)
     gs = pltgs.GridSpec(10, 12, hspace=-0.025, wspace=-0.025)
     fig = plt.figure(figsize=(10, 8.5))
     yloc = np.linspace(0.95, 0.05, 10)
-    if dataset != 'mnist':
+    if dataset != 'digits':
         for i in np.arange(10):
             plt.text(-0.01, yloc[i], class_dict[i], ha='right', va='center')
         plt.gca().set_xticks([])
@@ -292,7 +291,7 @@ def plot_samples(x_train, y_train, dataset='mnist'):
     return None
 
 
-def plot_class_means(x_train, y_train, dataset='mnist'):
+def plot_class_means(x_train, y_train, dataset='digits'):
     class_dict = dataset_classes(dataset)
     means = []
     for i in range(y_train.shape[-1]):
@@ -305,14 +304,14 @@ def plot_class_means(x_train, y_train, dataset='mnist'):
         ax.set_xticks([])
         ax.set_yticks([])
         xlim, ylim = np.array(ax.get_xlim()), np.array(ax.get_ylim())
-        if dataset != 'mnist':
+        if dataset != 'digits':
             plt.text(np.mean(xlim), ylim[1] - np.ptp(ylim) * 0.02,
                      '{}'.format(class_dict[i]), ha='center',
                      va='bottom', size=12)
     return None
 
 
-def training_summary(model, ledger, x_test, y_test, dataset='mnist'):
+def training_summary(model, ledger, x_test, y_test, dataset='digits'):
     opt_epoch = []
     train_loss = []
     train_acc = []
@@ -371,7 +370,7 @@ def ensemble_results(model, x_train, y_train, x_test, y_test):
     return test_act, test_pred, test_res
 
 
-def plot_confusion(test_act, test_pred, dataset='mnist'):
+def plot_confusion(test_act, test_pred, dataset='digits'):
     title = 'MNIST CNN Ensemble\nConfusion Matrix'
     classes = list(dataset_classes(dataset).values())
     rotation = 90 if type(classes) == str else 0
@@ -397,7 +396,7 @@ def plot_confusion(test_act, test_pred, dataset='mnist'):
     return None
 
 
-def plot_misclassified(x_test, test_pred, test_act, test_res, dataset='mnist',
+def plot_misclassified(x_test, test_pred, test_act, test_res, dataset='digits',
                        _sort=False, prelab='=', size=11, h_ratio=2.3):
     title = 'MNIST CNN Ensemble\nMisclassified Digits\n\n'
     prelab = '='
