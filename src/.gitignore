@@ -3,6 +3,7 @@
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.ipynb
 
 # cache
 __pycache__/
