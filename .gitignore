@@ -8,5 +8,5 @@
 __pycache__/
 
 # misc
-notes.txt
+*.txt
 data/
